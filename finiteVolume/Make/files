@@ -1,0 +1,4 @@
+cfdTools/general/porosityModel/RhemeCorrelation/RhemeCorrelation.C
+cfdTools/general/porosityModel/PCTDCorrelation/PCTDCorrelation.C
+
+LIB = $(FOAM_USER_LIBBIN)/libVKIfiniteVolume

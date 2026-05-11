@@ -1,0 +1,65 @@
+            std::vector<scalar> CfT(3); 
+    
+            CfT[0]  = CfT_bare[0]* Pw_bare[0] / Pw_wired[0] + 
+            WdT * 3 * A_proj[0] / A_bare[0] * 
+            De_wired[0] / H *    
+            pow((De_wired[0] / Dw),m);
+
+            CfT[1]  = CfT_bare[1] * pow((1 + WsT * 
+            A_proj[1] / A_bare[1] * 
+            pow(tan_theta_proj,2)),((3-m)/2.));
+
+            CfT[2]  = CfT_bare[2] *pow((1 + WsT * 
+            A_proj[2] / A_bare[2] * 
+            pow(tan_theta_proj,2)),((3-m)/2.));
+            
+            //Info << "CfT : << " << CfT[0] << " | " << CfT[1] << " | " << CfT[2] << endl; 
+    
+            Eigen::Matrix3d MMT;
+            MMT.setZero();
+
+            for (int ii = 0; ii < 3; ii++) {            
+                for (int jj = 0; jj < 3; jj++) {    
+
+                double rowSum = std::accumulate(Pij[ii].begin(), Pij[ii].end(), 0.0);
+                
+                //Info << "rowSum : " << rowSum << " | " << ii <<" |" << jj<< endl; 
+                if (ii==jj)
+                {
+                    MMT(ii,ii) = CfT[ii] * pow((De_wired[3] / De_wired[ii]),(1+m)) + 
+                        tan_theta_proj * 
+                        (De_wired[3] / (S_data[ii]  * A_wired[3])) * 
+                        WmT * sqrt(A_proj[1] / A_bare[1]) * 
+                        rowSum;
+                } else {
+                    MMT(ii,jj) = - tan_theta_proj  * 
+                        (De_wired[3] / (S_data[ii]  * A_wired[3])) * 
+                        WmT * sqrt(A_proj[1] / A_bare[1]) * Pij[ii][jj];
+
+                    }
+                }
+            }
+
+            if (MMT.determinant() == 0) {
+                std::cerr << "Matrix MMT is singular!" << std::endl;
+                return;
+            }
+            Eigen::Vector3d F_solve_T;
+            F_solve_T.setZero();
+
+            F_solve_T << 1, 1, 1;
+            //Solve Ax = b
+                
+            Eigen::Vector3d Z0_T = MMT.completeOrthogonalDecomposition().solve(F_solve_T);
+            //Eigen::Vector3d X0_T = Z0_T.array().square();
+            Eigen::Vector3d X0_T = Z0_T.array().pow(1./(2.-m));
+            //std::cout << "MM : " << MMT << "\n X0 \n" << X0_T << endl;
+            
+            double sumSX_T =0; 
+
+                for (int ll=0; ll<3; ll++)
+                {
+                    sumSX_T+= S_data[ll]*X0_T[ll];
+                } 
+                
+             Eigen::Vector3d X_T = X0_T/(sumSX_T);

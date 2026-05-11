@@ -1,0 +1,114 @@
+             std::vector<scalar> ReTi(3); 
+             std::vector<scalar> ReLi(3); 
+             std::vector<scalar> fLi(3); 
+             std::vector<scalar> fTi(3); 
+             
+             Eigen::Matrix3d betaL;
+            betaL.setZero();
+            
+            Eigen::Matrix3d betaT;
+            betaT.setZero();
+ for (int sch = 0; sch < 3; ++sch) {
+        // Compute Cf and Re values
+
+
+        ReTi[sch] = RebT * X_T[sch] * De_wired[sch] / De_wired[3];
+        ReLi[sch] = RebL * X_L[sch] * De_wired[sch] / De_wired[3];
+        fLi[sch] = CfL[sch] / ReLi[sch];
+        fTi[sch] = CfT[sch] / pow(ReTi[sch], m);
+
+        // Mixing coefficients
+        for (int sj = 0; sj < 3; ++sj) {
+            betaL(sch,sj) = 0.0; // All zeros, no mixing in the laminar regime
+            if (X_T[sch] != X_T[sj]) { // Avoid division by zero
+                betaT(sch,sj) = (1.0 * pow(X_T[sch], 2.0 - m) - pow(X_T[sj], 2.0 - m)) /
+                                     (pow(X_T[sch], 2.0) - pow(X_T[sj], 2.0));
+            } else {
+                betaT(sch,sj) = 0.0;
+            }
+
+            if (sj == sch) {
+                betaT(sch,sch) = 0.0;
+            }
+        }
+    }
+    
+    scalar psi = log(Re/RebL) / log(RebT/RebL);
+    
+    std::vector<scalar> fiTransition= {0 ,0,0}; 
+             
+    Eigen::Matrix3d betaTransition;
+    betaTransition.setZero();
+    
+    
+for (int sch = 0; sch < 3; ++sch) {
+    fiTransition[sch] = CfL[sch]  / (Re * X_L[sch] * De_wired[sch] / De_wired[3]) * pow((1-psi), gamma) * (1-pow(psi,lambda))+  
+             CfT[sch]  / pow((Re * X_T[sch] * De_wired[sch] / De_wired[3]),0.18) * pow(psi, gamma);            
+        for (int sj = 0; sj < 3; ++sj) {
+            betaTransition(sch,sj) = betaL(sch,sj) * pow((1-psi),gamma)  * (1-pow(psi,lambda))+ 
+                       betaT(sch,sj) * pow(psi,gamma) * pow((RebT/Re),m);                   
+        }
+}
+
+
+            Eigen::Matrix3d MM_transition;
+            MM_transition.setZero();
+            MM_transition << 1.0, 2.0, 3.0,
+            4.0, 5.0, 6.0,
+            7.0, 8.0, 9.0;
+
+            for (int ii = 0; ii < 3; ii++) {            
+                for (int jj = 0; jj < 3; jj++) {    
+
+                double rowSum = std::accumulate(Pij[ii].begin(), Pij[ii].end(), 0.0);
+                
+                //Info << "rowSum : " << rowSum << " | " << ii <<" |" << jj<< endl; 
+                if (ii==jj)
+                {
+                
+                        double sum_beta_Pij = 0.0;
+                        for (int k = 0; k < 3; ++k) { // Equivalent to MATLAB's sum(geom.Pij(ii,:) .* beta(ii,:))
+                            sum_beta_Pij += Pij[ii][k] * betaTransition(ii,k);
+                        }
+                    MM_transition(ii,ii) = fiTransition[ii] * (De_wired[3] / De_wired[ii]) + 
+                                tan_theta_proj * sqrt(A_proj[1] / A_bare[1]) * 
+                                (De_wired[3] / (S_data[ii]  * A_bdl)) * 
+                                sum_beta_Pij;
+        
+            
+                } else {
+                    MM_transition(ii,jj) = - tan_theta_proj * sqrt(A_proj[1] / A_bare[1]) *  
+                            (De_wired[3] / (S_data[ii]  * A_bdl)) * 
+                                    betaTransition(ii,jj) * Pij[ii][jj];
+
+                    }
+                }
+            }
+
+            if (MM_transition.determinant() == 0) {
+                std::cerr << "Matrix MMtransition is singular!" << std::endl;
+                return;
+            }
+            Eigen::Vector3d F_solve_transition;
+            F_solve_transition.setZero();
+
+            F_solve_transition << 1, 1, 1;
+            //Solve Ax = b
+                
+            Eigen::Vector3d Z0_transition = MM_transition.completeOrthogonalDecomposition().solve(F_solve_transition);
+            //Eigen::Vector3d X0_L = Z0_L.array().square();
+            Eigen::Vector3d X0_transition = Z0_transition.array().pow(1./(2.));
+            
+            
+            
+         //   std::cout << "Z0_transition : " << Z0_transition << "\n X0_transition \n" << X0_transition << endl;
+        //    std::cout << "MM_transition : " << MM_transition <<  endl;
+            
+                double sumSX_transition =0; 
+
+                for (int ll=0; ll<3; ll++)
+                {
+                    sumSX_transition+= S_data[ll]*X0_transition[ll];
+                } 
+            //    Info << "sum transition :  " << sumSX_transition << endl; 
+            Eigen::Vector3d X_transtion = X0_transition/(sumSX_transition);

@@ -1,0 +1,156 @@
+        const scalar Nr =  Nr_;
+        const scalar D =  D_;
+        const scalar PD =  PD_;
+        const scalar Dw =  Dw_;
+        const scalar H =  H_;
+        const scalar W =  W_;
+        const scalar r =  r_;
+        const scalar L_active =  L_active_;
+        const scalar L_porous =  L_porous_;
+
+        const scalar P = PD*D;
+        const scalar HD = H/D; 
+        const scalar WD = W/D;
+        const scalar n_rings = (sqrt(1.+4./3.*(Nr-1.))-1.)/2.;                        // Number of rings [-] 
+        const scalar FF_hex = n_rings * P * sqrt(3.) - D + 2*W;                // Flat-to-flat distance (internal) [m]
+        const scalar a_hex = (FF_hex)/2;                                     // Apothem of the regular hexagon   [m]
+        const scalar R_in_hex = a_hex*2/sqrt(3.);                                // Radius  of the regular hexagon   [m ] 
+
+        //Geometry parameters computation
+        std::vector<scalar> A_bare(4); 
+        std::vector<scalar> Pw_bare(4); 
+        std::vector<scalar> De_bare(4); 
+
+        std::vector<scalar> A_wired(4); 
+        std::vector<scalar> Pw_wired(4); 
+        std::vector<scalar> De_wired(4); 
+
+        std::vector<scalar> A_proj(3); 
+
+        std::vector<double> n_elements(4); 
+
+      constexpr double pi = 3.141592653589793;
+
+        n_elements[0] = 6.*pow(n_rings,2);          //  1 = I = internal sub-channel
+        n_elements[1] = 6.*n_rings;            // 2 = E = edge sub-channel     
+        n_elements[2] = 6;                   // 3 = C = corner sub-channel   
+        n_elements[3] = 0;              // 4 = B = complete bundle 
+
+        for (int i = 0; i < 3; i++ ) {
+            n_elements[3] += n_elements[i];
+        }
+
+
+        A_bare[0] = (sqrt(3.)/4.) * P *P - pi*D*D/8.;  // 1 = I 
+ //       Info << (sqrt(3.)/4.*P*P) << " | " << pi*D*D/8. <<endl;
+        A_bare[1] = P * (W - D/2) - pi*pow(D,2)/8;       														// 2 = E 
+        A_bare[2] = (pow((W - D/2),2) / sqrt(3.)) - pi*pow(D,2)/24 + (pi-2*sqrt(3.)) * pow(r,2)/6;            // 3 = C
+        A_bare[3] = 0;                           															// 4 = B
+
+        for (int i = 0; i < 3; i++ ) {
+            A_bare[3] += n_elements[i]*A_bare[i];
+        }
+
+        //  2.2.- Wetted perimeter
+        Pw_bare[0] = pi*D/2;                                       // 1 = I
+        Pw_bare[1] = P + pi*D/2;                              // 2 = E
+        Pw_bare[2] = pi*D/6 + 2 * (W - D/2) / sqrt(3.) + r/6 * (2*pi-4*sqrt(3.));                       // 3 = C
+        Pw_bare[3] = 0; 
+
+        for (int i = 0; i < 3; i++ ) {
+            Pw_bare[3] += n_elements[i]*Pw_bare[i];
+        } 
+
+        for (int i = 0; i < 4; i++
+         ) {
+            De_bare[i] =4*A_bare[i]/Pw_bare[i];
+        } 
+
+
+      A_proj[0] = pi * (D + Dw) * Dw / 6;              // 1 = I
+      A_proj[1] = pi * (D + Dw) * Dw / 4;              // 2 = E
+      A_proj[2] = pi * (D + Dw) * Dw / 6;              // 3 = C
+      // Wire angle teta
+      scalar cos_theta_proj = H / sqrt(pow(H,2)+pow(pi*(D+Dw),2));  
+      scalar sin_theta_proj = pi*(D+Dw) / sqrt(pow(H,2)+pow(pi*(D+Dw),2));
+      scalar tan_theta_proj = pi*(D+Dw)/H;                    
+      scalar theta_proj     = acos(cos_theta_proj);   
+
+ //     Info <<"angles: " << cos_theta_proj <<" | " << sin_theta_proj <<" | " <<tan_theta_proj << " | " <<theta_proj << endl; 
+
+      //  4.1.- Flow area
+      A_wired[0] = A_bare[0] - pi*pow(Dw,2) / 4 / (2*cos_theta_proj); // 1 = I 
+      A_wired[1] = A_bare[1] - pi*pow(Dw,2) / 4 / (2*cos_theta_proj); // 2 = E 
+      A_wired[2] = A_bare[2] - pi*pow(Dw,2) / 4 / (6*cos_theta_proj); // 3 = C
+      A_wired[3] = 0;                           															// 4 = B
+
+      for (int i = 0; i < 3; i++ ) {
+          A_wired[3] += n_elements[i]*A_wired[i];
+      }
+      //  4.2.- Wetted perimeter
+      Pw_wired[0] = Pw_bare[0] + pi*Dw / (2*cos_theta_proj);     // 1 = I
+      Pw_wired[1] = Pw_bare[1] + pi*Dw / (2*cos_theta_proj);     // 2 = E
+      Pw_wired[2] = Pw_bare[2] + pi*Dw / (6*cos_theta_proj);     // 3 = C
+      Pw_wired[3] = 0; 
+
+      for (int i = 0; i < 3; i++ ) {
+          Pw_wired[3] += n_elements[i]*Pw_wired[i];
+      } 
+//  4.3.- Equivalent diameter
+        for (int i = 0; i < 4; i++
+         ) {
+            De_wired[i] =4*A_wired[i]/Pw_wired[i];
+        } 
+        const scalar A_int     = A_wired[0];
+        const scalar Pw_int    = Pw_wired[0];
+        const scalar De_int    = De_wired[0];
+
+        const scalar A_edge    = A_wired[1];
+        const scalar Pw_edge   = Pw_wired[1];
+        const scalar De_edge   = De_wired[1];
+
+        const scalar A_corner  = A_wired[2];
+        const scalar Pw_corner = Pw_wired[2];
+        const scalar De_corner = De_wired[2];
+
+        const scalar A_bdl     = A_wired[3];
+        const scalar Pw_bdl    = Pw_wired[3];
+        const scalar De_bdl    = De_wired[3];
+
+        const scalar gamma_bdl = A_bdl/ ((3*sqrt(3.)/2.*pow(R_in_hex,2)));
+//        Info << " Bundle properties: " << endl ; 
+//        Info << "Interior: "  << n_elements[0] << " | " << A_wired[0] << " | " << Pw_int << " | " << De_int << endl; 
+//        Info << "Edge: "      << n_elements[1] << " | " << A_edge << " | " << Pw_edge << " | " << De_edge << endl; 
+//        Info << "Corner: "    << n_elements[2] << " | " << A_corner << " | " << Pw_corner << " | " << De_corner << endl; 
+//        Info << "Bundle: "    << n_elements[3] << " | " << A_bdl << " | " << Pw_bdl << " | " << De_bdl << endl; 
+//        Info << "Porosity : " << gamma_bdl << endl;
+    
+		
+
+
+    // Initialize Pij matrix as zeros
+    std::vector<std::vector<double>> Pij ={{0.0, 0.0, 0.0}, 
+                                            {0.0, 0.0, 0.0},
+                                            {0.0, 0.0, 0.0}};
+
+    // 6.1.- Interior - Edge
+    Pij[0][1] = 6. * n_rings * (P - D - Dw / 6.);
+    Pij[1][0] = Pij[0][1]; // Symmetric
+
+    // 6.2.- Edge - Corner
+    Pij[1][2] = (6. * (W - D) * 2. - Dw) / 2.; // consider only half
+    Pij[2][1] = Pij[1][2]; // Symmetric
+
+
+    //std::cout << "Pij : \n" << Pij[0][1]<< endl; 
+
+    std::vector<scalar> S_data = {0, 0, 0};
+
+    // Print the contents of the vector
+
+
+    for (int ii = 0; ii < 3; ii++) { 
+    S_data[ii]     = n_elements[ii] * A_wired[ii]/ A_wired[3];
+}
+
+

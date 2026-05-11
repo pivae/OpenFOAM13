@@ -1,0 +1,18 @@
+          // Model parameter
+            const    scalar    m = m_;
+            const    scalar    cbL1 =   cbL1_  ;
+            const    scalar    cbL2 =   cbL2_  ;
+            const    scalar    cbT1 =   cbT1_  ;
+            const    scalar    cbT2 =   cbT2_  ;
+            const    scalar    a =      a_     ;
+            const    scalar    b =      b_     ;
+            const    scalar    cwT1 =   cwT1_  ;
+            const    scalar    cwT2 =   cwT2_  ;
+            const    scalar    cwT3 =   cwT3_  ;
+            const    scalar    cwT4 =   cwT4_  ;
+            const    scalar    WmT =    WmT_   ;
+            const    scalar    cwL1 =   cwL1_  ;
+            const    scalar    cwL2 =   cwL2_  ;
+            const    scalar    WmL =    WmL_   ;
+            const    scalar    gamma =  gamma_ ;
+            const    scalar    lambda = lambda_; 
