@@ -1,0 +1,278 @@
+Bootstrap: docker
+From: rockylinux:8
+ 
+%labels
+    Maintainer  Enrico
+    Description OpenFOAM 12 + PCTD Correlation for VKI Cluster (OpenMPI 4.0.2 + UCX 1.6.1 / GCC 11)
+    Target      RHEL 8 / glibc 2.28 / OpenMPI 4.0.2 UCX / GCC 11 / Slurm
+    Note        Rocky 8 base used because OpenFOAM 12 requires GCC >= 11;
+                VKI cluster runs Fedora 30 (glibc 2.29 >= 2.28, forward-compatible).
+                OpenMPI + UCX are installed at the exact cluster paths so the host
+                libraries can be bind-mounted over them at runtime.
+
+ 
+%files
+    /home/pivato/openfoam-12-vki /opt/openfoam-12-vki
+  
+
+%post
+    set -eux
+    
+
+    # -------------------------------------------------------------------------
+    # Base system packages (Rocky 8 = RHEL 8 ABI; glibc 2.28 is forward-
+    # compatible with the VKI cluster's Fedora 30 / glibc 2.29)
+    # -------------------------------------------------------------------------
+    dnf -y install 'dnf-command(config-manager)'
+    dnf config-manager --set-enabled powertools
+    dnf -y install epel-release
+ 
+    dnf -y groupinstall "Development Tools"
+    dnf -y install \
+        gcc-toolset-11 gcc-toolset-11-gcc-c++ gcc-toolset-11-gcc-gfortran \
+        cmake make git wget curl ca-certificates \
+        flex bison m4 \
+        zlib-devel bzip2 bzip2-devel xz xz-devel \
+        readline-devel openssl-devel \
+        boost-devel \
+        libuuid-devel \
+        numactl-devel \
+        rdma-core-devel libibverbs-devel librdmacm-devel \
+        hwloc hwloc-devel \
+        pciutils-devel \
+        which file procps-ng hostname less vim-minimal \
+        python3 python3-devel \
+        perl perl-Text-ParseWords \
+        patch diffutils findutils tar gzip \
+        environment-modules \
+        libedit-devel expat-devel libattr-devel \
+        swig \
+        tcl-devel tk-devel libX11-devel libXt-devel
+ 
+    # NOTE: gcc-toolset-11 is installed but NOT activated yet.
+    # UCX 1.6.1 and OpenMPI 4.0.2 are built with the system GCC 8 to avoid
+    # -Werror failures (UCX 1.6.1 predates GCC 11).  gcc-toolset-11 is only
+    # activated later for OpenFOAM 12, which requires C++17/GCC >= 11.
+ 
+    # -------------------------------------------------------------------------
+    # UCX 1.6.1 --- installed at /usr to match cluster paths exactly.
+    # Configure flags are taken verbatim from the cluster's ucx_info -v output.
+    # -------------------------------------------------------------------------
+    cd /tmp
+    UCX_VER=1.6.1
+    wget -q https://github.com/openucx/ucx/releases/download/v${UCX_VER}/ucx-${UCX_VER}.tar.gz
+    tar xf ucx-${UCX_VER}.tar.gz
+    cd ucx-${UCX_VER}
+    ./configure \
+        --prefix=/usr --exec-prefix=/usr \
+        --bindir=/usr/bin --sbindir=/usr/sbin \
+        --sysconfdir=/etc --datadir=/usr/share \
+        --includedir=/usr/include --libdir=/usr/lib64 \
+        --libexecdir=/usr/libexec \
+        --localstatedir=/var --sharedstatedir=/var/lib \
+        --mandir=/usr/share/man --infodir=/usr/share/info \
+        --disable-optimizations \
+        --disable-logging --disable-debug --disable-assertions \
+        --disable-params-check \
+        --enable-cma \
+        --without-cuda --without-gdrcopy \
+        --with-verbs --without-cm \
+        --without-knem --with-rdmacm \
+        --without-rocm --without-xpmem --without-ugni
+    make -j"$(nproc)"
+    make install
+    ldconfig
+    cd /tmp && rm -rf ucx-${UCX_VER}*
+
+ 
+    # -------------------------------------------------------------------------
+    # OpenMPI 4.0.2 --- MUST match host version and install path.
+    # Configure flags are taken verbatim from the cluster's ompi_info output.
+    # At runtime the host MPI is bind-mounted over this path.
+    # -------------------------------------------------------------------------
+    cd /tmp
+    OMPI_VER=4.0.2
+    wget -q https://download.open-mpi.org/release/open-mpi/v4.0/openmpi-${OMPI_VER}.tar.bz2
+    tar xf openmpi-${OMPI_VER}.tar.bz2
+    cd openmpi-${OMPI_VER}
+    ./configure \
+        --prefix=/software/alternate/fk/openmpi/4.0.2 \
+        --with-ucx \
+        --without-verbs
+    make -j"$(nproc)"
+    make install
+    # ThirdParty's makeZoltan checks for lib64 first on x86_64
+    ln -sf /software/alternate/fk/openmpi/4.0.2/lib /software/alternate/fk/openmpi/4.0.2/lib64
+    cd /tmp && rm -rf openmpi-${OMPI_VER}*
+ 
+    # -------------------------------------------------------------------------
+    # Environment for OpenMPI + UCX (baked into /etc/profile.d so login shells
+    # pick it up; %environment below covers non-login shells)
+    # -------------------------------------------------------------------------
+    cat > /etc/profile.d/zz-openmpi.sh <<'EOF'
+export MPI_ROOT=/software/alternate/fk/openmpi/4.0.2
+export PATH=/software/alternate/fk/openmpi/4.0.2/bin:$PATH
+export LD_LIBRARY_PATH=/software/alternate/fk/openmpi/4.0.2/lib:$LD_LIBRARY_PATH
+EOF
+    . /etc/profile.d/zz-openmpi.sh
+ 
+    # -------------------------------------------------------------------------
+    # Activate gcc-11 --- required by OpenFOAM 12 (C++17).
+    # Everything above (UCX, OpenMPI) was built with system GCC 8.
+    # -------------------------------------------------------------------------
+    source /opt/rh/gcc-toolset-11/enable
+ 
+   
+    # -------------------------------------------------------------------------
+    # OpenFOAM 12 (openfoam.org --- Foundation, not OpenCFD)
+    # Build from source against the OpenMPI we just installed.
+    # -------------------------------------------------------------------------
+    mkdir -p /opt/OpenFOAM
+    cd /opt/OpenFOAM
+ 
+    git clone https://github.com/OpenFOAM/OpenFOAM-12.git OpenFOAM-12
+    git clone https://github.com/OpenFOAM/ThirdParty-12.git ThirdParty-12
+ 
+    # Point OpenFOAM at our system OpenMPI build (WM_MPLIB=SYSTEMOPENMPI)
+    sed -i 's|^export WM_MPLIB=.*|export WM_MPLIB=SYSTEMOPENMPI|' \
+        /opt/OpenFOAM/OpenFOAM-12/etc/bashrc
+ 
+    # Rocky Linux 8's /bin/sh is bash; source etc/bashrc directly in %post.
+    # Disable -e and -u: bashrc can return non-zero AND references $ZSH_NAME
+    # without a default, which trips set -u (unbound variable).
+    set +eu
+    source /opt/OpenFOAM/OpenFOAM-12/etc/bashrc
+    set -eu
+ 
+    # Pin MPI_ARCH_PATH to OpenMPI so ThirdParty resolves the right prefix.
+    export MPI_ARCH_PATH=/software/alternate/fk/openmpi/4.0.2
+    export WM_NCOMPPROCS=$(nproc)
+ 
+    # ThirdParty first (Zoltan, Scotch, PTScotch, etc.).
+    cd "$WM_THIRD_PARTY_DIR"
+    set +e
+    ./Allwmake -j "$(nproc)" -s -q
+    TP_RC=$?
+    set -e
+    echo "ThirdParty Allwmake exit: $TP_RC"
+ 
+    cd "$WM_PROJECT_DIR"
+    ./Allwmake -j "$(nproc)" -s -q
+ 
+    # Sanity check: did core binaries build?
+    test -x /opt/OpenFOAM/OpenFOAM-12/platforms/linux64GccDPInt32Opt/bin/foamRun \
+        || { echo "OpenFOAM build failed"; exit 1; }
+
+
+    # -------------------------------------------------------------------------
+	# PCTD Correlation --- custom library
+	# -------------------------------------------------------------------------
+
+    PCTD_dir="/opt/openfoam-12-vki/src/finiteVolume"
+    cd "$PCTD_dir"
+
+	echo "[INFO] Current directory:"
+	pwd
+
+
+    #echo "[INFO] Cloning Eigen..."
+	#git clone https://gitlab.com/libeigen/eigen.git ext_lib || {
+	#	echo "[ERROR] Failed to clone Eigen"
+	#	exit 1
+	#}
+
+    #cd "$PCTD_dir"
+    export FOAM_USER_LIBBIN=/opt/openfoam-12-vki/platforms/linux64GccDPInt32Opt/lib
+    mkdir -p "$FOAM_USER_LIBBIN"
+    echo "[INFO] Compiling library with wmake"
+
+    wmake || {
+        echo "[ERROR] wmake failed"
+        exit 1
+    }
+
+    # -------------------------------------------------------------------------
+    # Self-test: verify the library was actually produced where OpenFOAM
+    # will look for it, and that it's not missing any linked dependencies.
+    # -------------------------------------------------------------------------
+    echo "[INFO] Verifying built library..."
+
+    LIB_PATH=$(find "$FOAM_USER_LIBBIN" -maxdepth 1 -name "libVKIfiniteVolume.so" | head -n1)
+
+    if [ -z "$LIB_PATH" ]; then
+        echo "[ERROR] libVKIfiniteVolume.so not found under $FOAM_USER_LIBBIN"
+        echo "[INFO] Contents of $FOAM_USER_LIBBIN:"
+        ls -la "$FOAM_USER_LIBBIN" || true
+        exit 1
+    fi
+
+    echo "[INFO] Found library at: $LIB_PATH"
+    file "$LIB_PATH"
+
+    echo "[INFO] Checking shared library dependencies (ldd):"
+    ldd "$LIB_PATH" || true
+
+    # Fail the build if anything is unresolved — much better to catch this
+    # now than at runtime on the cluster.
+    if ldd "$LIB_PATH" | grep -q "not found"; then
+        echo "[ERROR] libVKIfiniteVolume.so has unresolved dependencies"
+        exit 1
+    fi
+
+    echo "[INFO] libVKIfiniteVolume.so build verified OK"
+
+    # -------------------------------------------------------------------------
+    # Cleanup to shrink the image
+    # -------------------------------------------------------------------------
+    dnf clean all
+    rm -rf /var/cache/dnf /root/.cache
+ 
+%environment
+    # Activate gcc-11 toolset
+    source /opt/rh/gcc-toolset-11/enable
+ 
+    # OpenMPI (UCX is at /usr --- already in system PATH and ld.so.conf)
+    export MPI_ROOT=/software/alternate/fk/openmpi/4.0.2
+    export PATH=/software/alternate/fk/openmpi/4.0.2/bin:$PATH
+    export LD_LIBRARY_PATH=/software/alternate/fk/openmpi/4.0.2/lib:/opt/openfoam-12-vki/platforms/linux64GccDPInt32Opt/lib:$LD_LIBRARY_PATH
+    export FOAM_USER_LIBBIN=/opt/openfoam-12-vki/platforms/linux64GccDPInt32Opt/lib
+
+    # OpenFOAM 12
+    export FOAM_INST_DIR=/opt/OpenFOAM
+    export WM_PROJECT_DIR=/opt/OpenFOAM/OpenFOAM-12
+    if [ -f "$WM_PROJECT_DIR/etc/bashrc" ]; then
+        # shellcheck disable=SC1091
+        . "$WM_PROJECT_DIR/etc/bashrc" >/dev/null 2>&1 || true
+    fi
+    
+
+%runscript
+    . /etc/profile.d/zz-openmpi.sh
+    . /opt/OpenFOAM/OpenFOAM-12/etc/bashrc >/dev/null 2>&1
+    exec "$@"
+
+%test
+    set -e
+    . /etc/profile.d/zz-openmpi.sh
+    set +eu
+    . /opt/OpenFOAM/OpenFOAM-12/etc/bashrc
+    set -eu
+ 
+    echo "=== OpenMPI version ==="
+    mpirun --version
+    echo
+    echo "=== UCX version ==="
+    ucx_info -v | head -3
+    echo
+    echo "=== OpenFOAM foamRun smoke ==="
+    test -x /opt/OpenFOAM/OpenFOAM-12/platforms/linux64GccDPInt32Opt/bin/foamRun
+    echo "foamRun binary: OK"
+    echo
+    echo "=== Local 2-rank MPI smoke (skipped in build sandbox) ==="
+    echo "Run: mpirun --allow-run-as-root -n 2 hostname  on the target system"
+ 
+
+ 
+    
+ 
+
