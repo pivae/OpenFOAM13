@@ -8,6 +8,10 @@ Repository containing OpenFOAM 13 material developed during my work at VKI.
   
   Includes an implementation of the **PCTD correlation**, which is not available in the standard OpenFOAM 13 distribution.
 
+- `flattenpatch-13/`
+
+  OpenFOAM 13 adaptation of a library originally developed for OpenFOAM 4.x by Tobias Holzmann, with updated dependencies and build options
+
 - `OpenFOAM13_loading.sh`
   
   Simple utility script to source within a SLURM job script.  
